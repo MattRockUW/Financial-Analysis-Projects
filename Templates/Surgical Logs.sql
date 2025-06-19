@@ -40,6 +40,9 @@ APRDRG_SOI,
 MSMDC,
 A.INS_PLAN_1_GL_PAYOR_GROUP_1,
 INSURANCE_PLAN_1,
+efmp.FIXED_NON_FIXED_FLG,	
+efmp.PAYOR_RISK_FLG,	
+efmp.FIN_MODEL_PAYOR_GRP,
 ADMIT_DT,
 DISCHARGE_DT,
 COALESCE(A.CHARGE_AMOUNT, 0) + COALESCE(M_PB.CHARGE_AMOUNT, 0) CHARGE_AMOUNT,
@@ -61,7 +64,9 @@ join [Source_UWHealth].EPIC_OR_PROC_CUR eopc on eocap.or_proc_id = eopc.or_proc_
 join [Source_UWHealth].EPIC_PAT_OR_ADM_LINK_CUR epoalc on epoalc.log_id = eocap.or_case_id  
 join [Source_UWHealth].EPIC_F_LOG_BASED_CUR eflb on eflb.log_id = olc.log_id
 join [Modeled_UWHealth].DIM_LOCATION_CUR locat on locat.loc_id = olc.loc_id
-join [Mart_UWHealth].[STRATA_COST_ACCOUNT_HB] A on a.pat_enc_csn_id=epoalc.or_link_csn
+join [Mart_UWHealth].[STRATA_COST_ACCOUNT_HB] A on a.pat_enc_csn_id=epoalc.or_link_csn and a.pat_enc_csn_id is not null
+join UDD_UWHealth.EA_FIN_MODEL_PAYOR_GRP_MAP efmp on efmp.INS_PLAN_1_GL_PAYOR_GROUP_1 = A.INS_PLAN_1_GL_PAYOR_GROUP_1 
+	and efmp.FIXED_NON_FIXED_FLG = a.FIXED_NON_FIXED_FLG
 LEFT JOIN --Joining on Matched PB
 (SELECT 
 MATCHED_HB_STRATA_ENCOUNTER,
@@ -74,27 +79,7 @@ FROM
 [Mart_UWHealth].[STRATA_COST_ACCOUNT_PB]
 WHERE MATCHED_HB_STRATA_ENCOUNTER IS NOT NULL
 GROUP BY MATCHED_HB_STRATA_ENCOUNTER) M_PB ON A.STRATA_ENCOUNTER_REC_NBR = M_PB.MATCHED_HB_STRATA_ENCOUNTER
-INNER JOIN --Subquery to find every Encounter and assign Primary OR Dept
-(SELECT B.STRATA_ENCOUNTER_REC_NBR, B.STRATA_DEPARTMENT_CD AS PRIM_OR_DEPT FROM 
-(SELECT *, RANK() OVER (PARTITION BY [STRATA_ENCOUNTER_REC_NBR] ORDER BY CHARGES DESC) RANK1
-FROM
-(SELECT 
-      [STRATA_ENCOUNTER_REC_NBR]
-	  ,STRATA_DEPARTMENT_CD
-	  ,COUNT(DISTINCT [OPTIME_LOG_ID]) OR_CASES
-     ,SUM([CHARGE_AMOUNT]) CHARGES
-  FROM [Mart_UWHealth].[STRATA_COST_CHARGE_ACTIVITY_HB]
-  WHERE 
-  [OPTIME_LOG_ID] IS NOT NULL
-  --AND [STRATA_DEPARTMENT_CD] IN ('211 - 1060 - 3040280 - 00','211 - 1081 - 3040280 - 00','211 - 1080 - 3040280 - 00','211 - 1080 - 3040290 - 00')
-  GROUP BY 
-  [STRATA_ENCOUNTER_REC_NBR]
-	  ,STRATA_DEPARTMENT_CD
-HAVING SUM([CHARGE_AMOUNT]) > 0  --Must have positive charges in OR
-) A
-) B
-WHERE
-RANK1 = 1) PRIM_OR ON A.STRATA_ENCOUNTER_REC_NBR = PRIM_OR.STRATA_ENCOUNTER_REC_NBR
+
 join [source_uwhealth].epic_CLARITY_EMP_cur admit on admit.prov_id = ADMIT_PROVIDER_ID
 join [source_uwhealth].epic_CLARITY_EMP_cur ATTEND on ATTEND.prov_id = ATTEND_PROVIDER_ID
 join [source_uwhealth].epic_CLARITY_EMP_cur surg on surg.prov_id = PRINCIPAL_SURGEON_ID
@@ -104,8 +89,4 @@ and olc.surgery_date >= '01/01/2024'
 and olc.loc_id not in ('110037000')
 --and olc.log_id = '1075438'
 order by surgery_date desc
-
---select top 100 * from [Source_UWHealth].EPIC_F_LOG_BASED_CUR
---where loc_id in (136130,101102,134593,133464,136932)
---join [Mart_UWHealth].[STRATA_COST_ACCOUNT_HB] A on a.pat_enc_csn_id=epoalc.or_link_csn
 
